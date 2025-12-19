@@ -1,3 +1,4 @@
+// server.ts
 import express from "express";
 import http from "http";
 import { WebSocketServer, WebSocket } from "ws";
@@ -7,87 +8,64 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
-app.get("/health", (_, res) => {
-  res.json({ ok: true });
-});
+app.get("/health", (_, res) => res.json({ ok: true }));
 
 wss.on("connection", (ws: WebSocket) => {
   console.log("🔌 WebSocket connected");
-  let isRunning = false;
 
-  const sendMessage = (type: string, payload: any = {}) => {
-    if (ws.readyState === WebSocket.OPEN) {
+  let otpResolver: ((otp: string) => void) | null = null;
+  let workflowRunning = false;
+
+  const send = (type: string, payload: any = {}) => {
+    ws.readyState === WebSocket.OPEN &&
       ws.send(JSON.stringify({ type, payload }));
+  };
+
+  ws.on("message", async (raw) => {
+    const msg = JSON.parse(raw.toString());
+
+    // FORM SUBMIT
+    if (msg.type === "FORM_SUBMIT" && !workflowRunning) {
+      workflowRunning = true;
+
+      try {
+        send("LOG", "Starting workflow...");
+
+        const getOtp = () =>
+          new Promise<string>((resolve) => {
+            otpResolver = resolve;
+            send("REQUEST_OTP");
+          });
+
+        await runWorkflow(
+          msg.payload,
+          getOtp,
+          (m) => send("LOG", m)
+        );
+
+        send("SUBMISSION_RESULT", { success: true });
+      } catch (e: any) {
+        send("SUBMISSION_RESULT", {
+          success: false,
+          message: e.message,
+        });
+      } finally {
+        workflowRunning = false;
+        setTimeout(() => ws.close(), 1000);
+      }
     }
-  };
 
-  const log = (message: string) => {
-    console.log(`[${new Date().toISOString()}] ${message}`);
-    sendMessage('LOG', { message });
-  };
-
-  ws.on("message", async (message) => {
-    try {
-      const data = JSON.parse(message.toString());
-      
-      if (isRunning) {
-        sendMessage('ERROR', { message: 'A workflow is already running' });
-        return;
-      }
-
-      if (data.type === 'FORM_SUBMIT') {
-        isRunning = true;
-        log('Received form submission');
-        
-        try {
-          log('Starting form processing workflow...');
-          
-          await runWorkflow(data.payload, (message) => {
-            log(message);
-          });
-          
-          log('Form processed successfully');
-          sendMessage('SUBMISSION_RESULT', { 
-            success: true, 
-            message: 'Form submitted successfully' 
-          });
-          
-        } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-          console.error('Workflow error:', error);
-          log(`Error: ${errorMessage}`);
-          sendMessage('SUBMISSION_RESULT', { 
-            success: false, 
-            message: errorMessage 
-          });
-        } finally {
-          isRunning = false;
-          // Give some time for the final messages to be sent before closing
-          setTimeout(() => {
-            if (ws.readyState === WebSocket.OPEN) {
-              ws.close();
-            }
-          }, 1000);
-        }
-      } else {
-        sendMessage('ERROR', { message: 'Invalid message type' });
-      }
-      
-    } catch (error) {
-      console.error('Error processing message:', error);
-      sendMessage('ERROR', { 
-        message: 'Error processing request',
-        error: error instanceof Error ? error.message : String(error)
-      });
+    // OTP SUBMIT
+    if (msg.type === "OTP_SUBMIT" && otpResolver) {
+      otpResolver(msg.payload.otp);
+      otpResolver = null;
+      send("LOG", "OTP submitted by user");
     }
   });
 
-  ws.on("close", () => {
-    console.log("❌ Client disconnected");
-  });
+  ws.on("close", () => console.log("❌ WebSocket disconnected"));
 });
 
-const PORT = Number(process.env.PORT ?? 3000);
-server.listen(PORT, () => {
-  console.log(`🚀 Server running on http://localhost:${PORT}`);
-});
+server.listen(3000, () =>
+  console.log("🚀 WS server running on http://localhost:3000")
+);

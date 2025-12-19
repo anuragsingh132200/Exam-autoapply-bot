@@ -6,9 +6,11 @@ export default function Home() {
   const wsRef = useRef<WebSocket | null>(null);
 
   const [logs, setLogs] = useState<string[]>([]);
-  const [status, setStatus] = useState<"idle" | "running" | "success" | "error">("idle");
+  const [status, setStatus] = useState("idle");
+  const [otp, setOtp] = useState("");
+  const [otpRequested, setOtpRequested] = useState(false);
 
-  const [form] = useState({
+  const form = {
     fullName: "Anurag",
     mobileNumber: "9302919931",
     guardianMobileNumber: "7000175017",
@@ -19,94 +21,74 @@ export default function Home() {
     schoolName: "OP Jindal School",
     pincode: "496001",
     dateOfBirth: "11/07/2005",
-  });
+  };
+
+  const log = (m: string) =>
+    setLogs((l) => [...l, m]);
 
   function handleApply() {
-    setLogs(prevLogs => [...prevLogs, "Starting form submission..."]);
-    setStatus("running");
-    
-    // Create a new WebSocket connection
     const ws = new WebSocket("ws://localhost:3000");
     wsRef.current = ws;
+    setStatus("running");
 
     ws.onopen = () => {
-      setLogs(prevLogs => [...prevLogs, "Connected to server"]);
-      
-      // Send the form data with a specific message type
-      const message = {
-        type: "FORM_SUBMIT",
-        payload: form
-      };
-      
-      ws.send(JSON.stringify(message));
-      setLogs(prevLogs => [...prevLogs, "Form data sent to server"]);
+      log("Connected to server");
+      ws.send(JSON.stringify({ type: "FORM_SUBMIT", payload: form }));
     };
 
-    ws.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(event.data);
-        console.log('Received message:', msg);
+    ws.onmessage = (e) => {
+      const msg = JSON.parse(e.data);
 
-        switch (msg.type) {
-          case 'LOG':
-            setLogs(prevLogs => [...prevLogs, msg.message]);
-            break;
-            
-          case 'SUBMISSION_RESULT':
-            if (msg.payload.success) {
-              setStatus("success");
-              setLogs(prevLogs => [...prevLogs, "Form submitted successfully!"]);
-            } else {
-              setStatus("error");
-              setLogs(prevLogs => [...prevLogs, `Error: ${msg.payload.message}`]);
-            }
-            // Close the connection after a short delay
-            setTimeout(() => ws.close(), 1000);
-            break;
-            
-          case 'ERROR':
-            setStatus("error");
-            setLogs(prevLogs => [...prevLogs, `Error: ${msg.payload?.message || 'Unknown error'}`]);
-            ws.close();
-            break;
-            
-          default:
-            console.warn('Unknown message type:', msg.type);
-        }
-      } catch (error) {
-        console.error('Error processing message:', error);
-        setStatus("error");
-        setLogs(prevLogs => [...prevLogs, 'Error processing server response']);
+      if (msg.type === "LOG") log(msg.payload ?? msg.message);
+      if (msg.type === "REQUEST_OTP") {
+        setOtpRequested(true);
+        log("OTP requested");
       }
-    };
-
-    ws.onerror = (error) => {
-      console.error('WebSocket error:', error);
-      setStatus("error");
-      setLogs(prevLogs => [...prevLogs, 'Connection error. Please try again.']);
-    };
-
-    ws.onclose = () => {
-      setLogs(prevLogs => [...prevLogs, "Connection closed"]);
-      wsRef.current = null;
+      if (msg.type === "SUBMISSION_RESULT") {
+        setStatus(msg.payload.success ? "success" : "error");
+        log("Workflow finished");
+      }
     };
   }
 
-  return (
-    <main className="p-10 max-w-xl mx-auto">
-      <h1 className="text-2xl font-bold mb-4">Student Admission</h1>
+  function submitOtp() {
+    wsRef.current?.send(
+      JSON.stringify({ type: "OTP_SUBMIT", payload: { otp } })
+    );
+    setOtpRequested(false);
+    log("OTP sent to server");
+  }
 
+  return (
+    <main className="p-8 max-w-xl mx-auto">
       <button
         onClick={handleApply}
         disabled={status === "running"}
         className="px-4 py-2 bg-purple-600 text-white rounded"
       >
-        {status === "running" ? "Applying…" : "Apply"}
+        Apply
       </button>
 
-      <div className="mt-6 p-4 border rounded text-sm whitespace-pre-wrap">
+      {otpRequested && (
+        <div className="mt-4">
+          <input
+            value={otp}
+            onChange={(e) => setOtp(e.target.value)}
+            placeholder="Enter OTP"
+            className="border px-2 py-1"
+          />
+          <button
+            onClick={submitOtp}
+            className="ml-2 px-3 py-1 bg-green-600 text-white rounded"
+          >
+            Submit OTP
+          </button>
+        </div>
+      )}
+
+      <pre className="mt-6 border p-4 text-sm">
         {logs.join("\n")}
-      </div>
+      </pre>
     </main>
   );
 }
