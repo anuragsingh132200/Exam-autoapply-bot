@@ -1,59 +1,93 @@
-import express, { type Request, type Response } from "express";
-import { runWorkflow } from "./index.js";
+import express from "express";
+import http from "http";
+import { WebSocketServer, WebSocket } from "ws";
+import { runWorkflow } from "./index";
 
 const app = express();
-app.use(express.json());
+const server = http.createServer(app);
+const wss = new WebSocketServer({ server });
 
-let isRunning = false;
-
-app.get("/health", (_req: Request, res: Response) => {
+app.get("/health", (_, res) => {
   res.json({ ok: true });
 });
 
-app.post("/start", async (req: Request, res: Response) => {
-  if (isRunning) {
-    return res.status(409).json({ success: false, error: "Workflow already running" });
-  }
+wss.on("connection", (ws: WebSocket) => {
+  console.log("🔌 WebSocket connected");
+  let isRunning = false;
 
-  const {
-    fullName,
-    mobileNumber,
-    guardianMobileNumber,
-    nearestCenter,
-    currentClass,
-    offeredCourses,
-    schoolName,
-    pincode,
-    dateOfBirth,
-  } = req.body || {};
+  const sendMessage = (type: string, payload: any = {}) => {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type, payload }));
+    }
+  };
 
-  if (!fullName || !mobileNumber || !guardianMobileNumber || !nearestCenter || !currentClass || !offeredCourses || !schoolName || !pincode || !dateOfBirth) {
-    return res.status(400).json({ success: false, error: "Missing required fields" });
-  }
+  const log = (message: string) => {
+    console.log(`[${new Date().toISOString()}] ${message}`);
+    sendMessage('LOG', { message });
+  };
 
-  isRunning = true;
-  try {
-    const result = await runWorkflow({
-      fullName,
-      mobileNumber,
-      guardianMobileNumber,
-      nearestCenter,
-      currentClass,
-      offeredCourses,
-      schoolName,
-      pincode,
-      dateOfBirth,
-    });
-    return res.status(result.success ? 200 : 500).json(result);
-  } catch (error) {
-    return res.status(500).json({ success: false, error });
-  } finally {
-    isRunning = false;
-  }
+  ws.on("message", async (message) => {
+    try {
+      const data = JSON.parse(message.toString());
+      
+      if (isRunning) {
+        sendMessage('ERROR', { message: 'A workflow is already running' });
+        return;
+      }
+
+      if (data.type === 'FORM_SUBMIT') {
+        isRunning = true;
+        log('Received form submission');
+        
+        try {
+          log('Starting form processing workflow...');
+          
+          await runWorkflow(data.payload, (message) => {
+            log(message);
+          });
+          
+          log('Form processed successfully');
+          sendMessage('SUBMISSION_RESULT', { 
+            success: true, 
+            message: 'Form submitted successfully' 
+          });
+          
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+          console.error('Workflow error:', error);
+          log(`Error: ${errorMessage}`);
+          sendMessage('SUBMISSION_RESULT', { 
+            success: false, 
+            message: errorMessage 
+          });
+        } finally {
+          isRunning = false;
+          // Give some time for the final messages to be sent before closing
+          setTimeout(() => {
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.close();
+            }
+          }, 1000);
+        }
+      } else {
+        sendMessage('ERROR', { message: 'Invalid message type' });
+      }
+      
+    } catch (error) {
+      console.error('Error processing message:', error);
+      sendMessage('ERROR', { 
+        message: 'Error processing request',
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+
+  ws.on("close", () => {
+    console.log("❌ Client disconnected");
+  });
 });
 
-const port = Number(process.env.PORT ?? 3000);
-app.listen(port, () => {
-  console.log(`Server listening on http://localhost:${port}`);
-  console.log(`POST /start to run the workflow`);
+const PORT = Number(process.env.PORT ?? 3000);
+server.listen(PORT, () => {
+  console.log(`🚀 Server running on http://localhost:${PORT}`);
 });

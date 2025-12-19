@@ -1,137 +1,112 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 
 export default function Home() {
-  const [status, setStatus] = useState<"idle" | "running" | "success" | "error">("idle");
-  const [message, setMessage] = useState("Waiting...");
+  const wsRef = useRef<WebSocket | null>(null);
 
-  const [form, setForm] = useState({
+  const [logs, setLogs] = useState<string[]>([]);
+  const [status, setStatus] = useState<"idle" | "running" | "success" | "error">("idle");
+
+  const [form] = useState({
     fullName: "Anurag",
     mobileNumber: "9302919931",
     guardianMobileNumber: "7000175017",
-    nearestCenter: "Raigarh Vidyapeeth (Pathshala Centre)",
+    mailId: "anurag132200@gmail.com",
+    nearestCenter: "Raigarh Vidyapeeth",
     currentClass: "12th",
-    offeredCourses: "One Year Classroom Program for JEE",
-    schoolName: "o p jindal school",
+    offeredCourses: "JEE Program",
+    schoolName: "OP Jindal School",
     pincode: "496001",
     dateOfBirth: "11/07/2005",
   });
 
-  async function handleApply() {
+  function handleApply() {
+    setLogs(prevLogs => [...prevLogs, "Starting form submission..."]);
     setStatus("running");
-    setMessage("Starting workflow…");
+    
+    // Create a new WebSocket connection
+    const ws = new WebSocket("ws://localhost:3000");
+    wsRef.current = ws;
 
-    try {
-      const res = await fetch("/api/start", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
-      });
-      const data = await res.json().catch(() => ({}));
+    ws.onopen = () => {
+      setLogs(prevLogs => [...prevLogs, "Connected to server"]);
+      
+      // Send the form data with a specific message type
+      const message = {
+        type: "FORM_SUBMIT",
+        payload: form
+      };
+      
+      ws.send(JSON.stringify(message));
+      setLogs(prevLogs => [...prevLogs, "Form data sent to server"]);
+    };
 
-      if (!res.ok || !data?.success) {
-        const errText = typeof data?.error === "string" ? data.error : JSON.stringify(data?.error ?? data, null, 2);
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        console.log('Received message:', msg);
+
+        switch (msg.type) {
+          case 'LOG':
+            setLogs(prevLogs => [...prevLogs, msg.message]);
+            break;
+            
+          case 'SUBMISSION_RESULT':
+            if (msg.payload.success) {
+              setStatus("success");
+              setLogs(prevLogs => [...prevLogs, "Form submitted successfully!"]);
+            } else {
+              setStatus("error");
+              setLogs(prevLogs => [...prevLogs, `Error: ${msg.payload.message}`]);
+            }
+            // Close the connection after a short delay
+            setTimeout(() => ws.close(), 1000);
+            break;
+            
+          case 'ERROR':
+            setStatus("error");
+            setLogs(prevLogs => [...prevLogs, `Error: ${msg.payload?.message || 'Unknown error'}`]);
+            ws.close();
+            break;
+            
+          default:
+            console.warn('Unknown message type:', msg.type);
+        }
+      } catch (error) {
+        console.error('Error processing message:', error);
         setStatus("error");
-        setMessage(`Apply failed\n\n${errText}`);
-        return;
+        setLogs(prevLogs => [...prevLogs, 'Error processing server response']);
       }
+    };
 
-      setStatus("success");
-      setMessage("Successfully applied");
-    } catch (e) {
-      const err = e as Error;
+    ws.onerror = (error) => {
+      console.error('WebSocket error:', error);
       setStatus("error");
-      setMessage(`Apply failed\n\n${err?.message ?? String(e)}`);
-    }
+      setLogs(prevLogs => [...prevLogs, 'Connection error. Please try again.']);
+    };
+
+    ws.onclose = () => {
+      setLogs(prevLogs => [...prevLogs, "Connection closed"]);
+      wsRef.current = null;
+    };
   }
 
-  const statusColor = {
-    idle: "bg-zinc-100 text-zinc-700 border-zinc-300",
-    running: "bg-yellow-100 text-yellow-800 border-yellow-300",
-    success: "bg-green-100 text-green-800 border-green-300",
-    error: "bg-red-100 text-red-800 border-red-300",
-  }[status];
-
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black p-4">
-      <main className="w-full max-w-lg bg-white dark:bg-black rounded-2xl border border-zinc-200 dark:border-zinc-800 p-8 shadow-lg">
-        <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50 mb-2">Student Admission — Apply</h1>
-        <p className="text-zinc-600 dark:text-zinc-400 mb-6">Edit the details below, then click Apply to start the automation.</p>
+    <main className="p-10 max-w-xl mx-auto">
+      <h1 className="text-2xl font-bold mb-4">Student Admission</h1>
 
-        <div className="space-y-4">
-          <input
-            className="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
-            placeholder="Full Name"
-            value={form.fullName}
-            onChange={(e) => setForm((f) => ({ ...f, fullName: e.target.value }))}
-          />
-          <input
-            className="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
-            placeholder="Mobile Number"
-            value={form.mobileNumber}
-            onChange={(e) => setForm((f) => ({ ...f, mobileNumber: e.target.value }))}
-          />
-          <input
-            className="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
-            placeholder="Guardian Mobile Number"
-            value={form.guardianMobileNumber}
-            onChange={(e) => setForm((f) => ({ ...f, guardianMobileNumber: e.target.value }))}
-          />
-          <input
-            className="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
-            placeholder="Nearest Center"
-            value={form.nearestCenter}
-            onChange={(e) => setForm((f) => ({ ...f, nearestCenter: e.target.value }))}
-          />
-          <input
-            className="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
-            placeholder="Current Class"
-            value={form.currentClass}
-            onChange={(e) => setForm((f) => ({ ...f, currentClass: e.target.value }))}
-          />
-          <input
-            className="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
-            placeholder="Offered Courses"
-            value={form.offeredCourses}
-            onChange={(e) => setForm((f) => ({ ...f, offeredCourses: e.target.value }))}
-          />
-          <input
-            className="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
-            placeholder="School Name"
-            value={form.schoolName}
-            onChange={(e) => setForm((f) => ({ ...f, schoolName: e.target.value }))}
-          />
-          <input
-            className="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
-            placeholder="Pincode"
-            value={form.pincode}
-            onChange={(e) => setForm((f) => ({ ...f, pincode: e.target.value }))}
-          />
-          <input
-            className="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 rounded-lg bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
-            placeholder="Date of Birth (MM/DD/YYYY)"
-            value={form.dateOfBirth}
-            onChange={(e) => setForm((f) => ({ ...f, dateOfBirth: e.target.value }))}
-          />
-        </div>
+      <button
+        onClick={handleApply}
+        disabled={status === "running"}
+        className="px-4 py-2 bg-purple-600 text-white rounded"
+      >
+        {status === "running" ? "Applying…" : "Apply"}
+      </button>
 
-        <button
-          onClick={handleApply}
-          disabled={status === "running"}
-          className="w-full mt-6 py-3 px-4 rounded-xl font-semibold bg-gradient-to-r from-purple-600 to-cyan-600 text-white hover:from-purple-700 hover:to-cyan-700 disabled:opacity-80 disabled:cursor-not-allowed transition-all"
-        >
-          {status === "running" ? "Applying…" : "Apply"}
-        </button>
-
-        <div className={`mt-4 p-3 rounded-lg border text-sm whitespace-pre-wrap ${statusColor}`}>
-          {message}
-        </div>
-
-        <div className="mt-4 text-xs text-zinc-500 dark:text-zinc-500">
-          Endpoint: <code className="text-zinc-700 dark:text-zinc-400">POST /api/start</code>
-        </div>
-      </main>
-    </div>
+      <div className="mt-6 p-4 border rounded text-sm whitespace-pre-wrap">
+        {logs.join("\n")}
+      </div>
+    </main>
   );
 }

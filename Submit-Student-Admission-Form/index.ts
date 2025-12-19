@@ -22,22 +22,35 @@ import StagehandConfig from "./stagehand.config.js";
 
 // Stagehand configuration for local execution
 
-export async function runWorkflow(data: {
+export type ProgressCallback = (message: string) => void;
+
+export interface FormData {
   fullName: string;
   mobileNumber: string;
   guardianMobileNumber: string;
+  mailId: string;
   nearestCenter: string;
   currentClass: string;
   offeredCourses: string;
   schoolName: string;
   pincode: string;
   dateOfBirth: string;
-}) {
+}
+
+export async function runWorkflow(
+  data: FormData,
+  onProgress?: ProgressCallback
+) {
   let stagehand: Stagehand | null = null;
+  
+  const log = (message: string) => {
+    console.log(message);
+    onProgress?.(message);
+  };
 
   try {
     // Initialize Stagehand
-    console.log('Initializing Stagehand...');
+    log('Initializing Stagehand...');
     stagehand = new Stagehand(StagehandConfig);
     await stagehand.init();
     console.log('Stagehand initialized successfully.');
@@ -57,8 +70,8 @@ export async function runWorkflow(data: {
     };
 
     // Step 1: Navigate to URL
-    console.log('Navigating to: https://forms.gle/fnVv6zvsYRoXxyidA');
-    await page.goto('https://forms.gle/fnVv6zvsYRoXxyidA');
+    console.log('Navigating to: https://upsconline.nic.in/');
+    await page.goto('https://upsconline.nic.in/');
     
     // Step 2: Perform action
     console.log(`Performing action: type '${data.fullName}' into the Full Name field`);
@@ -121,7 +134,7 @@ export async function runWorkflow(data: {
     });
     
     // Step 12: Perform action
-    console.log(`Performing action: click the Vidyapeeth radio button`);
+    log(`Performing action: click the Vidyapeeth radio button`);
     await page.act(`click the Vidyapeeth radio button`);
     
     // Scroll: Scrolled down lg (100%) of viewport
