@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     
     # API Keys
     google_api_key: str
+    browserbase_api_key: str
+    browserbase_project_id: str
     
     # MongoDB
     mongodb_uri: str = "mongodb://localhost:27017"

@@ -38,6 +38,9 @@ def route_after_analyze(state: GraphState) -> Literal[
     if next_action == "fill_form":
         return "fill_form"
     
+    if next_action == "click_checkbox":
+        return "click_action"  # Uses same node, but clicks checkbox
+    
     if next_action == "click_submit":
         return "click_action"
     
@@ -81,7 +84,7 @@ def should_continue_workflow(state: GraphState) -> bool:
     """
     status = state.get("status", "running")
     
-    if status in ["success", "failed"]:
+    if status in ["completed", "failed"]:
         return False
     
     retry_count = state.get("retry_count", 0)

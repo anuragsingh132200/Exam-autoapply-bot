@@ -1,126 +1,108 @@
 """
-Graph Builder
-Constructs the LangGraph state machine with MongoDBSaver checkpointing.
+Graph Builder - NEW LLM-Driven Architecture
+Constructs the LangGraph state machine with LLM vision decision layer.
 """
 from langgraph.graph import StateGraph, START, END
-from langgraph.checkpoint.mongodb.aio import AsyncMongoDBSaver
-from motor.motor_asyncio import AsyncIOMotorClient
-from typing import Optional
+from langgraph.checkpoint.memory import MemorySaver
+from typing import Optional, Literal
 
 from app.config import settings
 from app.graph.state import GraphState
 from app.graph.nodes import (
     init_browser_node,
     capture_screenshot_node,
-    analyze_page_node,
-    fill_form_node,
-    click_action_node,
-    request_otp_node,
-    request_captcha_node,
-    request_custom_input_node,
-    enter_input_node,
+    llm_decide_node,
+    execute_single_action_node,
     success_node,
-    error_recovery_node,
     save_analytics_node,
 )
-from app.graph.edges import route_after_analyze, route_after_error
 
 
 # Global checkpointer instance
-_checkpointer: Optional[AsyncMongoDBSaver] = None
+_checkpointer: Optional[MemorySaver] = None
 
 
-async def get_checkpointer() -> AsyncMongoDBSaver:
-    """
-    Get or create the MongoDB checkpointer.
-    Uses LangGraph's built-in AsyncMongoDBSaver for state persistence.
-    """
+async def get_checkpointer() -> MemorySaver:
+    """Get or create the checkpointer."""
     global _checkpointer
     
     if _checkpointer is None:
-        client = AsyncIOMotorClient(settings.mongodb_uri)
-        _checkpointer = AsyncMongoDBSaver(client, db_name=settings.database_name)
+        _checkpointer = MemorySaver()
     
     return _checkpointer
 
 
+def route_after_execute(state: GraphState) -> Literal["capture_screenshot", "success", "end"]:
+    """
+    Route after action execution.
+    If completed or failed, go to success/end.
+    If waiting for input, go to END (workflow will be resumed later).
+    Otherwise, loop back to capture for next action.
+    """
+    status = state.get("status", "running")
+    retry_count = state.get("retry_count", 0)
+    max_retries = state.get("max_retries", 3)
+    
+    if status == "completed":
+        return "success"
+    
+    if status == "waiting_input":
+        # Workflow pauses here - will be resumed when user provides input
+        return "end"
+    
+    if status == "failed" or retry_count >= max_retries:
+        return "success"  # Go to success node to finalize (even for failures)
+    
+    # Continue the loop
+    return "capture_screenshot"
+
+
 def build_workflow_graph() -> StateGraph:
     """
-    Build the LangGraph state machine for workflow automation.
+    Build the NEW LLM-driven state machine.
     
-    Graph structure:
-    START -> init_browser -> capture_screenshot -> analyze_page
-    analyze_page -> (routing) -> fill_form | click_action | request_* | success | error
-    fill_form -> capture_screenshot
-    click_action -> capture_screenshot
-    request_* (interrupt) -> enter_input -> capture_screenshot
-    error_recovery -> capture_screenshot | END
+    SIMPLIFIED Graph structure:
+    START -> init_browser -> capture_screenshot -> llm_decide -> execute_action
+    execute_action -> (routing) -> capture_screenshot (loop) | success | end
     success -> save_analytics -> END
+    
+    The key insight: LLM decides ONE action at a time, execute it, then re-capture
+    and let LLM decide the next action. Simple loop until done.
     """
     
-    # Create graph builder with our state type
     builder = StateGraph(GraphState)
     
     # ============= Add Nodes =============
     
     builder.add_node("init_browser", init_browser_node)
     builder.add_node("capture_screenshot", capture_screenshot_node)
-    builder.add_node("analyze_page", analyze_page_node)
-    builder.add_node("fill_form", fill_form_node)
-    builder.add_node("click_action", click_action_node)
-    builder.add_node("request_otp", request_otp_node)
-    builder.add_node("request_captcha", request_captcha_node)
-    builder.add_node("request_custom_input", request_custom_input_node)
-    builder.add_node("enter_input", enter_input_node)
+    builder.add_node("llm_decide", llm_decide_node)
+    builder.add_node("execute_action", execute_single_action_node)
     builder.add_node("success", success_node)
-    builder.add_node("error_recovery", error_recovery_node)
     builder.add_node("save_analytics", save_analytics_node)
     
     # ============= Add Edges =============
     
-    # Entry point
+    # Entry: init -> capture
     builder.add_edge(START, "init_browser")
-    
-    # Main flow
     builder.add_edge("init_browser", "capture_screenshot")
-    builder.add_edge("capture_screenshot", "analyze_page")
     
-    # Conditional routing after analysis
+    # Main loop: capture -> decide -> execute
+    builder.add_edge("capture_screenshot", "llm_decide")
+    builder.add_edge("llm_decide", "execute_action")
+    
+    # After execute: conditional routing
     builder.add_conditional_edges(
-        "analyze_page",
-        route_after_analyze,
+        "execute_action",
+        route_after_execute,
         {
-            "fill_form": "fill_form",
-            "click_action": "click_action",
-            "request_otp": "request_otp",
-            "request_captcha": "request_captcha",
-            "request_custom_input": "request_custom_input",
+            "capture_screenshot": "capture_screenshot",  # Loop back
             "success": "success",
-            "error_recovery": "error_recovery",
+            "end": END,  # Pause for user input
         }
     )
     
-    # After fill/click, go back to capture
-    builder.add_edge("fill_form", "capture_screenshot")
-    builder.add_edge("click_action", "capture_screenshot")
-    
-    # Human intervention nodes -> enter_input -> capture
-    builder.add_edge("request_otp", "enter_input")
-    builder.add_edge("request_captcha", "enter_input")
-    builder.add_edge("request_custom_input", "enter_input")
-    builder.add_edge("enter_input", "capture_screenshot")
-    
-    # Error recovery routing
-    builder.add_conditional_edges(
-        "error_recovery",
-        route_after_error,
-        {
-            "capture_screenshot": "capture_screenshot",
-            "success": "success",  # For failed state, go to success to finalize
-        }
-    )
-    
-    # Success path
+    # Finish: success -> save -> END
     builder.add_edge("success", "save_analytics")
     builder.add_edge("save_analytics", END)
     
@@ -130,24 +112,18 @@ def build_workflow_graph() -> StateGraph:
 async def create_compiled_graph(with_checkpointing: bool = True):
     """
     Create a compiled graph ready for execution.
-    
-    Args:
-        with_checkpointing: Whether to enable MongoDB checkpointing.
-                           Enable for production, disable for testing.
-    
-    Returns:
-        Compiled LangGraph ready to run.
     """
     builder = build_workflow_graph()
     
     if with_checkpointing:
         checkpointer = await get_checkpointer()
         
-        # Compile with checkpointer and interrupt configuration
-        # interrupt_before specifies nodes that will pause for human input
+        # Compile with checkpointer
+        # Note: interrupts are handled INSIDE execute_single_action_node 
+        # when human input is needed (OTP, captcha)
         graph = builder.compile(
             checkpointer=checkpointer,
-            interrupt_before=["request_otp", "request_captcha", "request_custom_input"]
+            # No interrupt_before - let execution proceed normally
         )
     else:
         graph = builder.compile()
@@ -166,8 +142,6 @@ async def run_workflow(
 ) -> dict:
     """
     Run the workflow for a given session.
-    
-    This is the main entry point for starting a new workflow.
     """
     from app.graph.state import create_initial_state
     
@@ -185,8 +159,11 @@ async def run_workflow(
     # Create compiled graph
     graph = await create_compiled_graph()
     
-    # Create thread config for checkpointing
-    config = {"configurable": {"thread_id": session_id}}
+    # Create thread config for checkpointing - increased recursion limit for long workflows
+    config = {
+        "configurable": {"thread_id": session_id},
+        "recursion_limit": 100  # Increased from default 25
+    }
     
     # Run the graph
     result = await graph.ainvoke(initial_state, config=config)
@@ -194,25 +171,49 @@ async def run_workflow(
     return result
 
 
-async def resume_workflow(session_id: str, user_input: dict) -> dict:
+async def resume_workflow(session_id: str, user_input: any) -> dict:
     """
     Resume a paused workflow with user input.
-    
-    Called after user provides OTP, captcha, or custom input.
-    
-    Args:
-        session_id: The workflow session ID (used as thread_id)
-        user_input: The user's input that was requested
-    
-    Returns:
-        Updated state after resumption
+    Gets the saved state, adds user input, clears waiting flag, and restarts.
     """
-    graph = await create_compiled_graph()
+    from app.api.websocket import send_log
+    
+    # Get the saved state from checkpointer
+    checkpointer = await get_checkpointer()
     config = {"configurable": {"thread_id": session_id}}
     
-    # Resume execution with the user's input
-    # The input value is passed to the interrupt() call
-    result = await graph.ainvoke(user_input, config=config)
+    try:
+        checkpoint = await checkpointer.aget(config)
+        if not checkpoint:
+            return {"success": False, "error": "No saved state found"}
+        
+        saved_state = checkpoint.get("values", {})
+    except Exception as e:
+        return {"success": False, "error": f"Failed to get state: {e}"}
+    
+    # Get what type of input we were waiting for
+    waiting_type = saved_state.get("waiting_for_input_type")
+    
+    await send_log(session_id, f"✓ Received {waiting_type or 'user'} input, resuming...", "success")
+    
+    # Update state with user input and clear waiting flag
+    updated_state = {
+        **saved_state,
+        "human_input_value": user_input,
+        "waiting_for_input_type": None,
+        "status": "running",
+    }
+    
+    # Create graph and run from the beginning with updated state
+    # Since we have checkpointing, we just re-invoke with the same thread
+    graph = await create_compiled_graph()
+    
+    # Update config with recursion limit
+    config["recursion_limit"] = 100
+    
+    # Re-run the workflow - it will continue from capture_screenshot
+    # because the state now has status="running"
+    result = await graph.ainvoke(updated_state, config=config)
     
     return result
 
@@ -220,8 +221,6 @@ async def resume_workflow(session_id: str, user_input: dict) -> dict:
 async def get_workflow_state(session_id: str) -> Optional[dict]:
     """
     Get the current state of a workflow.
-    
-    Uses the checkpointer to retrieve the saved state.
     """
     checkpointer = await get_checkpointer()
     config = {"configurable": {"thread_id": session_id}}

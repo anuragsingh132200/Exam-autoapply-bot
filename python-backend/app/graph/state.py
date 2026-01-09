@@ -59,6 +59,10 @@ class PageAnalysis(BaseModel):
     buttons: list[ButtonInfo] = Field(default_factory=list, description="Buttons detected on the page")
     has_submit_button: bool = Field(default=False, description="Whether a submit/continue button is available")
     
+    # Checkbox for agreement/terms (must be clicked before submit)
+    checkbox_to_click: Optional[str] = Field(default=None, description="Checkbox label text that needs to be clicked")
+    button_to_click: Optional[str] = Field(default=None, description="Button text to click after all checkboxes are checked")
+    
     # Status
     error_message: Optional[str] = Field(default=None, description="Error message if visible on page")
     success_message: Optional[str] = Field(default=None, description="Success message if visible")
@@ -67,6 +71,7 @@ class PageAnalysis(BaseModel):
     # Recommended action
     next_action: Literal[
         "fill_form",
+        "click_checkbox",
         "click_submit", 
         "request_otp",
         "request_captcha",
@@ -115,14 +120,21 @@ class GraphState(TypedDict):
     screenshot_base64: Optional[str]
     page_html: Optional[str]
     
-    # LLM Analysis result
+    # LLM Analysis result (legacy)
     analysis: Optional[dict]  # PageAnalysis as dict
     
-    # Human intervention
+    # NEW: LLM Decision (from vision analysis)
+    llm_decision: Optional[dict]  # ActionDecision as dict
+    already_filled_fields: list[str]  # Track which fields are filled
+    captcha_fail_count: int  # Track failed captcha attempts (fallback to human after 3)
+    
+    # Human intervention - NEW: waiting_for_input_type instead of interrupt()
+    waiting_for_input_type: Optional[str]  # None, 'otp', 'captcha', or 'custom'
     pending_intervention: Optional[dict]
     received_otp: Optional[str]
     received_captcha: Optional[str]
     received_custom_inputs: dict[str, str]
+    human_input_value: Optional[Any]  # Value from user input
     
     # Action tracking (using Annotated with add for append-only)
     action_history: Annotated[list[dict], add]
@@ -137,7 +149,7 @@ class GraphState(TypedDict):
     last_error: Optional[str]
     
     # Status
-    status: Literal["running", "waiting_input", "paused", "success", "failed"]
+    status: Literal["running", "waiting_input", "paused", "completed", "failed"]
     result_message: Optional[str]
 
 
@@ -164,10 +176,15 @@ def create_initial_state(
         screenshot_base64=None,
         page_html=None,
         analysis=None,
+        llm_decision=None,
+        already_filled_fields=[],
+        captcha_fail_count=0,
+        waiting_for_input_type=None,
         pending_intervention=None,
         received_otp=None,
         received_captcha=None,
         received_custom_inputs={},
+        human_input_value=None,
         action_history=[],
         current_step="init",
         progress=0,

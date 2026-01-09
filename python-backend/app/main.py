@@ -1,6 +1,13 @@
 """
 Exam Automation Platform - FastAPI Main Entry Point
 """
+import sys
+import asyncio
+
+# Fix Windows asyncio subprocess issue with Playwright
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager

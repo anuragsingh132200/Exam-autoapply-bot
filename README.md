@@ -1,77 +1,143 @@
 # Exam Auto-Apply Bot 🤖
 
-An automated application bot designed to register students for the **PW NSAT (Physics Wallah National Scholarship cum Admission Test)**. This project leverages AI-powered browser automation with **Stagehand** and real-time communication via **WebSockets**.
+An AI-powered automated form-filling bot for exam registrations. Uses **LLM Vision** (Gemini) to analyze pages and **Stagehand** for browser automation.
 
 ## 🏗️ Architecture
 
-The project is split into two main components:
-
--   **Backend (`Submit-Student-Admission-Form`)**: A Node.js server that runs the [Stagehand](https://stagehand.dev/) automation scripts. It manages the browser session and communicates with the frontend via WebSockets.
--   **Frontend (`cleint`)**: A Next.js application that provides a user-friendly interface for initiating the application process and entering the OTP (One-Time Password) during the login step.
-
-## 🚀 Getting Started
-
-### Prerequisites
-
--   Node.js (v18 or higher)
--   npm, pnpm, or yarn
-
-### 1. Backend Setup
-
-```bash
-cd Submit-Student-Admission-Form
-npm install
-npm start
+```
+┌─────────────────┐     ┌──────────────────┐     ┌────────────────────┐
+│    Frontend     │────▶│  Python Backend  │────▶│ Stagehand Backend  │
+│   (Next.js)     │     │   (FastAPI)      │     │   (TypeScript)     │
+│   Port: 3000    │     │   Port: 8000     │     │    Port: 3001      │
+└─────────────────┘     └──────────────────┘     └────────────────────┘
+        │                       │                        │
+        │                       ▼                        ▼
+        │              ┌──────────────────┐     ┌────────────────────┐
+        │              │  Gemini Vision   │     │   Browser (CDP)    │
+        │              │  (LLM Analysis)  │     │   via Stagehand    │
+        │              └──────────────────┘     └────────────────────┘
+        │
+        ▼
+   WebSocket (Real-time logs, OTP requests, screenshots)
 ```
 
-### 2. Frontend Setup
+## 🚀 Quick Start
 
+### Prerequisites
+- Node.js v18+
+- Python 3.10+
+- MongoDB (local or Atlas)
+
+### 1. Frontend Setup
 ```bash
-cd cleint
+cd frontend
 npm install
 npm run dev
 ```
 
-### ⚡ Simplified Run (Windows)
+### 2. Python Backend Setup
+```bash
+cd python-backend
+python -m venv venv
+venv\Scripts\activate  # Windows
+pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8000
+```
 
-You can run both the backend and frontend simultaneously using the provided batch script:
+### 3. Stagehand Backend Setup
+```bash
+cd stagehand-backend
+npm install
+npm run dev
+```
 
-1.  Double-click `run.bat` in the root directory.
-2.  It will automatically install dependencies (if missing) and start both servers in separate windows.
-*The client will be available at `http://localhost:3001` (or the next available port).*
+### Environment Variables
+
+**python-backend/.env**
+```env
+GOOGLE_GENERATIVE_AI_API_KEY=your_gemini_api_key
+MONGODB_URL=mongodb://localhost:27017
+STAGEHAND_BACKEND_URL=http://localhost:3001
+```
+
+**stagehand-backend/.env**
+```env
+GOOGLE_GENERATIVE_AI_API_KEY=your_gemini_api_key
+```
 
 ## 🛠️ How It Works
 
-1.  **Form Submission**: The user clicks "Apply" on the frontend.
-2.  **WebSocket Connection**: The frontend opens a WebSocket connection to the backend server.
-3.  **Automation Trigger**: The backend receives the `FORM_SUBMIT` message and initializes **Stagehand**.
-4.  **Browser Orchestration**:
-    -   Navigates to the PW NSAT registration page.
-    -   Enters the student's mobile number.
-    -   Requests an OTP from the user via the WebSocket.
-5.  **OTP Handling**: The frontend displays an OTP input field. Once submitted, the OTP is sent back to the backend.
-6.  **Completion**: The backend fills the OTP, selects the required exam and class details, and submits the form.
-7.  **Real-time Logs**: Throughout the process, the backend sends status logs to the frontend, which are displayed in the UI.
+1. **User adds exam** - Creates exam with URL and field mappings
+2. **User adds profile** - Stores personal data (name, email, phone, etc.)
+3. **Click Apply** - Starts the automation workflow
+
+### Workflow Loop
+```
+capture_screenshot → llm_decide → execute_action → (loop)
+                                        ↓
+                         ┌──────────────────────────────┐
+                         │     Action Types:            │
+                         │  • fill_field (form inputs)  │
+                         │  • click_checkbox            │
+                         │  • click_button              │
+                         │  • wait_for_human (OTP)      │
+                         │  • success (done!)           │
+                         └──────────────────────────────┘
+```
+
+### OTP Handling
+- LLM detects OTP input → Sends modal to frontend
+- User enters OTP → Bot fills it and continues
+
+### Captcha Handling
+- LLM reads captcha image automatically
+- No human intervention needed (AI solves it!)
 
 ## 📁 Project Structure
 
-```text
-.
-├── Submit-Student-Admission-Form/   # Backend (Stagehand + Express + WebSocket)
-│   ├── index.ts                     # Automation workflow logic
-│   ├── server.ts                    # WebSocket server
-│   └── stagehand.config.ts          # Stagehand configuration
-└── cleint/                          # Frontend (Next.js + Tailwind CSS)
-    └── app/
-        └── page.tsx                 # Main UI and WebSocket client logic
+```
+├── frontend/                  # Next.js UI
+│   └── app/
+│       ├── page.tsx          # Dashboard
+│       └── workflow/         # Real-time workflow view
+│
+├── python-backend/            # FastAPI + LangGraph
+│   └── app/
+│       ├── graph/            # Workflow nodes & logic
+│       │   ├── nodes.py      # Action execution
+│       │   ├── llm_decision.py  # LLM Vision analysis
+│       │   └── builder.py    # Graph construction
+│       └── api/
+│           └── websocket.py  # Real-time communication
+│
+└── stagehand-backend/         # TypeScript Stagehand
+    └── src/
+        ├── sessions.ts       # Browser session manager
+        └── routes/api.ts     # Stagehand API endpoints
 ```
 
-## 🔋 Technologies Used
+## 🔧 Technologies
 
--   **[Stagehand](https://github.com/browserbase/stagehand)**: AI-driven browser automation.
--   **Next.js**: Modern React framework for the frontend.
--   **WebSockets (ws)**: For bidirectional, real-time communication between client and server.
--   **TypeScript**: Ensures type safety across the codebase.
+| Component | Technology |
+|-----------|------------|
+| Frontend | Next.js, React, Tailwind CSS |
+| Python Backend | FastAPI, LangGraph, Pydantic |
+| Stagehand Backend | TypeScript, Stagehand v3, Playwright |
+| LLM | Gemini 2.5 Flash (Vision) |
+| Database | MongoDB |
+| Realtime | WebSockets |
+
+## 📝 Adding Support for New Exams
+
+1. **Add Exam** in frontend → Enter URL and field mappings
+2. **Field Mappings** map user data keys to form labels
+3. **Test** the workflow on the real site
+
+## ⚠️ Notes
+
+- For educational purposes only
+- Ensure compliance with website terms of service
+- OTP requires user intervention (can't be automated)
 
 ---
-*Note: This project is for educational purposes. Ensure you comply with the terms of service of any website you automate.*
+Made with ❤️ using Stagehand + Gemini Vision
