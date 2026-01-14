@@ -9,6 +9,7 @@ interface UserData {
         full_name: string;
         email: string;
         phone: string;
+        password?: string;
         date_of_birth?: string;
         gender?: string;
         guardian_name?: string;
@@ -27,7 +28,7 @@ interface UserData {
 }
 
 const defaultForm = {
-    full_name: '', email: '', phone: '', date_of_birth: '', gender: '',
+    full_name: '', email: '', phone: '', password: '', date_of_birth: '', gender: '',
     guardian_name: '', guardian_phone: '', current_class: '', school_name: '',
     board: '', city: '', state: '', pincode: ''
 };
@@ -54,6 +55,7 @@ export default function UsersPage() {
         const body = {
             profile: {
                 full_name: form.full_name, email: form.email, phone: form.phone,
+                password: form.password || null,
                 date_of_birth: form.date_of_birth || null, gender: form.gender || null,
                 guardian_name: form.guardian_name || null, guardian_phone: form.guardian_phone || null
             },
@@ -85,6 +87,7 @@ export default function UsersPage() {
         setEditingUser(user);
         setForm({
             full_name: user.profile.full_name, email: user.profile.email, phone: user.profile.phone,
+            password: user.profile.password || '',
             date_of_birth: user.profile.date_of_birth || '', gender: user.profile.gender || '',
             guardian_name: user.profile.guardian_name || '', guardian_phone: user.profile.guardian_phone || '',
             current_class: user.academic.current_class || '', school_name: user.academic.school_name || '',
@@ -121,6 +124,7 @@ export default function UsersPage() {
                                 <Input label="Full Name *" value={form.full_name} onChange={v => setForm({ ...form, full_name: v })} required />
                                 <Input label="Email *" type="email" value={form.email} onChange={v => setForm({ ...form, email: v })} required />
                                 <Input label="Phone *" value={form.phone} onChange={v => setForm({ ...form, phone: v })} required />
+                                <Input label="Password" type="password" value={form.password} onChange={v => setForm({ ...form, password: v })} placeholder="Account password" />
                                 <Input label="Date of Birth" value={form.date_of_birth} onChange={v => setForm({ ...form, date_of_birth: v })} placeholder="DD/MM/YYYY" />
                                 <Input label="Gender" value={form.gender} onChange={v => setForm({ ...form, gender: v })} />
                                 <Input label="Guardian Name" value={form.guardian_name} onChange={v => setForm({ ...form, guardian_name: v })} />

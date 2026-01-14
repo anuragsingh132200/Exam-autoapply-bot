@@ -13,6 +13,7 @@ class ProfileData(BaseModel):
     full_name: str
     email: EmailStr
     phone: str
+    password: Optional[str] = None  # For password/confirm password fields
     alternate_phone: Optional[str] = None
     date_of_birth: Optional[str] = None  # Format: DD/MM/YYYY
     gender: Optional[Literal["male", "female", "other"]] = None
@@ -74,6 +75,8 @@ class User(Document):
         flat["email"] = self.profile.email
         flat["phone"] = self.profile.phone
         flat["mobileNumber"] = self.profile.phone
+        flat["password"] = self.profile.password
+        flat["confirmPassword"] = self.profile.password  # Same as password
         flat["alternatePhone"] = self.profile.alternate_phone
         flat["dateOfBirth"] = self.profile.date_of_birth
         flat["gender"] = self.profile.gender

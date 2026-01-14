@@ -134,6 +134,12 @@ BEFORE clicking submit, carefully scan the ENTIRE page for ANY empty input field
 - An empty captcha field means the previous captcha was WRONG - solve it again!
 - Fill unfilled fields ONE AT A TIME
 
+### 5a. PASSWORD FIELDS
+If you see password or confirm password fields:
+- Use the "password" value from user data for BOTH password and confirm password fields
+- Password fields are type="password" and show dots/asterisks when filled
+- Fill password first, then confirm password with the SAME value
+
 ⚠️ CRITICAL: If a captcha field is visible and EMPTY:
 - The captcha was likely wrong last time
 - DO NOT click submit!

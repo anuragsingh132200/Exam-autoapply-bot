@@ -175,9 +175,9 @@ function WorkflowContent() {
                 <p className="text-dark-400">Run exam registration automation</p>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
                 {/* Left: Controls & Logs */}
-                <div className="lg:col-span-2 space-y-6">
+                <div className="space-y-6">
                     {/* Control Panel */}
                     <div className="card">
                         <h2 className="text-lg font-semibold mb-4">Configuration</h2>
@@ -234,8 +234,11 @@ function WorkflowContent() {
                                     <span className="text-dark-400">{currentStep}</span>
                                     <span className="text-dark-400">{progress}%</span>
                                 </div>
-                                <div className="progress-bar">
-                                    <div className="progress-bar-fill" style={{ width: `${progress}%` }} />
+                                <div className="h-2 bg-dark-700 rounded-full overflow-hidden">
+                                    <div
+                                        className="h-full bg-primary-500 transition-all duration-300"
+                                        style={{ width: `${progress}%` }}
+                                    />
                                 </div>
                             </div>
                         )}
@@ -250,8 +253,8 @@ function WorkflowContent() {
                             ) : (
                                 logs.map((log, i) => (
                                     <div key={i} className={`mb-1 ${log.level === 'error' ? 'text-red-400' :
-                                            log.level === 'warning' ? 'text-amber-400' :
-                                                log.level === 'success' ? 'text-green-400' : 'text-dark-300'
+                                        log.level === 'warning' ? 'text-amber-400' :
+                                            log.level === 'success' ? 'text-green-400' : 'text-dark-300'
                                         }`}>
                                         <span className="text-dark-500">[{log.timestamp}]</span> {log.message}
                                     </div>
@@ -263,14 +266,14 @@ function WorkflowContent() {
                 </div>
 
                 {/* Right: Screenshot */}
-                <div className="card h-fit">
+                <div className="card">
                     <h2 className="text-lg font-semibold mb-4">Live View</h2>
-                    <div className="aspect-[4/3] bg-dark-900 rounded-lg overflow-hidden flex items-center justify-center">
+                    <div className="bg-dark-900 rounded-lg overflow-hidden flex items-center justify-center" style={{ minHeight: '500px' }}>
                         {screenshot ? (
                             <img
                                 src={`data:image/png;base64,${screenshot}`}
                                 alt="Browser screenshot"
-                                className="w-full h-full object-contain"
+                                className="w-full h-auto object-contain max-h-[600px]"
                             />
                         ) : (
                             <p className="text-dark-500 text-sm">No screenshot available</p>
